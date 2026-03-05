@@ -103,13 +103,9 @@ $clarionCL     = Join-Path $clarionBin  "ClarionCL.exe"
 $msBuild       = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe"
 $claInterface  = "C:\Program Files (x86)\UpperParkSolutions\claInterface\ClaInterface.exe"
 
-# Detect Clarion major version from ClarionCL.exe to find the correct user config folder
+# Derive ConfigDir from the passed ClarionCL.exe version (e.g. %AppData%\SoftVelocity\Clarion\10.0)
 if (-not $ConfigDir) {
-    if (Test-Path $clarionCL) {
-        $majorVer = (Get-Item $clarionCL).VersionInfo.ProductMajorPart
-    } else {
-        $majorVer = 10  # fallback — will fail validation below if ClarionCL missing
-    }
+    $majorVer  = (Get-Item $clarionCL).VersionInfo.ProductMajorPart
     $ConfigDir = Join-Path $env:APPDATA "SoftVelocity\Clarion\$majorVer.0"
 }
 
