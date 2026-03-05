@@ -37,8 +37,8 @@ For each project in the solution, the script:
 | Windows PowerShell 5.1+ or PowerShell 7+ | |
 | Clarion 10 with `ClarionCL.exe` | Pass path via `-ClarionPath` |
 | .NET Framework 4 (MSBuild) | Ships with Windows — `C:\Windows\Microsoft.NET\Framework\v4.0.30319\` |
-| UpperPark ClaInterface | Required for import step only — `C:\Program Files (x86)\UpperParkSolutions\claInterface\ClaInterface.exe` |
-| `up_vcSettings.ini` in solution folder | Written by UpperPark VC Interface — must contain `OutputFolder=` |
+| [UpperPark Solutions Clarion Version Control Interface](https://www.upperparkdesigns.com/products/clarion-version-control/) | Required for the import step — installs `ClaInterface.exe`. Skip with `-SkipImport` if not used. |
+| `up_vcSettings.ini` in solution folder | Written by UpperPark VC Interface — must contain `OutputFolder=` pointing to the APV folder root |
 | `ClarionProperties.xml` in ConfigDir | Defaults to `%AppData%\SoftVelocity\Clarion\10.0` |
 
 ---
