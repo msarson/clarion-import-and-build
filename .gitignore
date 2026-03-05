@@ -1,0 +1,5 @@
+# Build output logs
+build-output/
+
+# Clarion generated/temp files
+*.upstxa
