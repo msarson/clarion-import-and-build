@@ -10,13 +10,14 @@
     Does NOT run ClarionCL /ag - no source generation.
 
     Requires:
-      - Clarion 10 installed with a working IDE configuration
-      - UpperPark ClaInterface (only if using vcDevelopment APV import)
+      - Clarion 10, 11, or 12 installed with a working IDE configuration
+      - UpperPark Solutions Clarion Version Control Interface (import step only)
       - MSBuild (ships with .NET Framework 4)
 
 .PARAMETER ClarionPath
-    Path to your Clarion 10 installation folder (e.g. C:\Clarion10).
-    Must contain bin\ClarionCL.exe and bin\Clarion.exe.
+    Path to your Clarion installation folder (e.g. C:\Clarion10).
+    Must contain bin\ClarionCL.exe. The Clarion version is detected automatically
+    from ClarionCL.exe to locate the correct user config folder.
 
 .PARAMETER SolutionPath
     Path to your .sln file. Default: accura.sln in the current directory.
@@ -26,16 +27,26 @@
 
 .PARAMETER ConfigDir
     Path to the Clarion config directory containing ClarionProperties.xml.
-    Default: %AppData%\SoftVelocity\Clarion\10.0 (your IDE's own config).
+    Default: auto-detected from ClarionCL.exe version (e.g. %AppData%\SoftVelocity\Clarion\10.0).
+
+.PARAMETER ClaInterfacePath
+    Path to ClaInterface.exe. Default: C:\Program Files (x86)\UpperParkSolutions\claInterface\ClaInterface.exe.
+
+.PARAMETER MsBuildPath
+    Path to MSBuild.exe. Default: C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe.
+
+.PARAMETER CriticalProjects
+    Comma-separated list of project names whose failure aborts the build immediately,
+    regardless of -StopOnError. Default: none.
 
 .PARAMETER SkipImport
-    Skip the vcDevelopment import step and go straight to MSBuild.
+    Skip the APV import step and go straight to MSBuild.
 
 .PARAMETER StopOnError
     Stop the build on the first project failure. Default: true.
 
 .EXAMPLE
-    # Import from vcDevelopment APV folders then build
+    # Import APV changes then build
     .\import-and-build.ps1 -ClarionPath "C:\Clarion10"
 
 .EXAMPLE
@@ -43,8 +54,12 @@
     .\import-and-build.ps1 -ClarionPath "C:\Clarion10" -SkipImport
 
 .EXAMPLE
-    # Debug build with explicit solution path
-    .\import-and-build.ps1 -ClarionPath "C:\Clarion10" -SolutionPath "C:\Dev\MyApp\MyApp.sln" -Configuration Debug
+    # Debug build, keep going on errors
+    .\import-and-build.ps1 -ClarionPath "C:\Clarion10" -Configuration Debug -StopOnError $false
+
+.EXAMPLE
+    # Abort immediately if 'classes' or 'data' fail
+    .\import-and-build.ps1 -ClarionPath "C:\Clarion10" -CriticalProjects "classes","data"
 #>
 
 [CmdletBinding()]
@@ -61,6 +76,15 @@ param(
 
     [Parameter()]
     [string]$ConfigDir,
+
+    [Parameter()]
+    [string]$ClaInterfacePath = "C:\Program Files (x86)\UpperParkSolutions\claInterface\ClaInterface.exe",
+
+    [Parameter()]
+    [string]$MsBuildPath = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe",
+
+    [Parameter()]
+    [string[]]$CriticalProjects = @(),
 
     [Parameter()]
     [switch]$SkipImport,
@@ -86,7 +110,8 @@ function Get-VcOutputFolder {
     if (-not $line) {
         throw "OutputFolder not found in '$ini'. Cannot determine VC output folder."
     }
-    $folder = ($line -split '=', 2)[1].Trim()
+    # Strip inline comments (# or ;) then trim
+    $folder = (($line -split '=', 2)[1] -split '[#;]')[0].Trim()
     if (-not $folder) {
         throw "OutputFolder is empty in '$ini'. Cannot determine VC output folder."
     }
@@ -100,8 +125,6 @@ function Get-VcOutputFolder {
 $ClarionPath   = [System.IO.Path]::GetFullPath($ClarionPath)
 $clarionBin    = Join-Path $ClarionPath "bin"
 $clarionCL     = Join-Path $clarionBin  "ClarionCL.exe"
-$msBuild       = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe"
-$claInterface  = "C:\Program Files (x86)\UpperParkSolutions\claInterface\ClaInterface.exe"
 
 # Derive ConfigDir from the passed ClarionCL.exe version (e.g. %AppData%\SoftVelocity\Clarion\10.0)
 if (-not $ConfigDir) {
@@ -120,8 +143,9 @@ if (-not (Test-Path $clarionCL)) {
     Write-Fail "ClarionCL.exe not found at: $clarionCL"
     exit 1
 }
-if (-not (Test-Path $msBuild)) {
-    Write-Fail "MSBuild not found at: $msBuild"
+if (-not (Test-Path $MsBuildPath)) {
+    Write-Fail "MSBuild not found at: $MsBuildPath"
+    Write-Host "  Override with: -MsBuildPath `"<path to msbuild.exe>`"" -ForegroundColor Yellow
     exit 1
 }
 if (-not (Test-Path $ConfigDir)) {
@@ -150,7 +174,7 @@ function Get-ProjectsFromSolution {
     $dir = Split-Path $SolutionFile -Parent
     $projects = @()
     Get-Content $SolutionFile | ForEach-Object {
-        if ($_ -match 'Project\(".*?"\)\s*=\s*"(.*?)",\s*"(.*?\.cwproj)"') {
+        if ($_ -match 'Project\s*\(\s*".*?"\s*\)\s*=\s*"(.*?)",\s*"(.*?\.cwproj)"') {
             $name = $Matches[1]
             $file = Join-Path $dir $Matches[2]
             if (Test-Path $file) {
@@ -178,14 +202,17 @@ function Get-ProjectData {
 function Get-BuildOrder {
     param([array]$Projects)
 
-    $nodes     = @{}
+    $nodes      = @{}
     $guidToName = @{}
 
     foreach ($p in $Projects) {
         $d = Get-ProjectData $p.File
         if ($d -and $d.Guid) {
-            $nodes[$p.Name]       = @{ Project = $p; Guid = $d.Guid; OutputType = $d.OutputType; RefGuids = $d.RefGuids; Deps = @() }
-            $guidToName[$d.Guid]  = $p.Name
+            if ($guidToName.ContainsKey($d.Guid)) {
+                Write-Warn "Duplicate project GUID '$($d.Guid)' found in '$($p.Name)' and '$($guidToName[$d.Guid])'. Dependency resolution may be incorrect."
+            }
+            $nodes[$p.Name]      = @{ Project = $p; Guid = $d.Guid; OutputType = $d.OutputType; RefGuids = $d.RefGuids; Deps = @() }
+            $guidToName[$d.Guid] = $p.Name
         }
     }
 
@@ -193,13 +220,18 @@ function Get-BuildOrder {
         $nodes[$name].Deps = $nodes[$name].RefGuids | Where-Object { $guidToName.ContainsKey($_) } | ForEach-Object { $guidToName[$_] }
     }
 
-    $sorted   = [System.Collections.ArrayList]::new()
-    $visited  = @{}
-    $visiting = @{}
+    $sorted    = [System.Collections.ArrayList]::new()
+    $visited   = @{}
+    $visiting  = @{}
+    $cycleFound = $false
 
     function Visit($n) {
-        if ($visiting[$n]) { return }
-        if ($visited[$n])  { return }
+        if ($visiting[$n]) {
+            Write-Warn "Circular dependency detected at project '$n' — build order may be incorrect."
+            $script:cycleFound = $true
+            return
+        }
+        if ($visited[$n]) { return }
         $visiting[$n] = $true
         if ($nodes.ContainsKey($n)) {
             foreach ($dep in $nodes[$n].Deps) { Visit $dep }
@@ -211,24 +243,28 @@ function Get-BuildOrder {
 
     foreach ($n in ($nodes.Keys | Sort-Object)) { Visit $n }
 
+    if ($cycleFound) {
+        Write-Warn "One or more circular dependencies were detected. Review your .cwproj ProjectReference entries."
+    }
+
     return $sorted.ToArray(), $nodes
 }
 
 # ---------------------------------------------------------------------------
-# STEP 1 – Import apps from vcDevelopment
+# STEP 1 – Import apps from VC output folder
 # ---------------------------------------------------------------------------
 
 if (-not $SkipImport) {
-    Write-Host "`n--- Step 1: Importing Apps from vcDevelopment ---" -ForegroundColor Magenta
+    Write-Host "`n--- Step 1: Importing Apps ---" -ForegroundColor Magenta
 
-    if (-not (Test-Path $claInterface)) {
-        Write-Warn "ClaInterface.exe not found at: $claInterface"
-        Write-Warn "Skipping import. Use -SkipImport to suppress this warning."
+    if (-not (Test-Path $ClaInterfacePath)) {
+        Write-Warn "ClaInterface.exe not found at: $ClaInterfacePath"
+        Write-Warn "Skipping import. Use -SkipImport to suppress this warning, or -ClaInterfacePath to specify the correct path."
     } else {
         $vcBase = Get-VcOutputFolder $solutionDir
         $apps = @()
         Get-Content $SolutionPath | ForEach-Object {
-            if ($_ -match 'Project\(".*?"\)\s*=\s*"(.*?)",\s*"(.*?\.cwproj)"') {
+            if ($_ -match 'Project\s*\(\s*".*?"\s*\)\s*=\s*"(.*?)",\s*"(.*?\.cwproj)"') {
                 $name    = $Matches[1]
                 $appFile = Join-Path $solutionDir "$name.app"
                 $vcDir   = Join-Path $vcBase $name
@@ -248,27 +284,33 @@ if (-not $SkipImport) {
                 Write-Host "  $($app.Name)..." -NoNewline -ForegroundColor Gray
                 $txa = Join-Path $solutionDir "$($app.Name).upstxa"
 
-                # Build TXA from APV files
-                $proc = Start-Process -FilePath $claInterface `
-                    -ArgumentList "/quiet /ConfigDir `"$ConfigDir`" COMMAND=BUILDTXA INPUT=`"$($app.VCDir)`" OUTPUT=`"$txa`" APPNAME=`"$($app.Name)`"" `
-                    -Wait -NoNewWindow -PassThru
-                if ($proc.ExitCode -ne 0 -or -not (Test-Path $txa)) {
-                    Write-Host " FAILED (BuildTXA exit $($proc.ExitCode))" -ForegroundColor Red
-                    $fail++; continue
-                }
+                try {
+                    # Build TXA from APV files
+                    $proc = Start-Process -FilePath $ClaInterfacePath `
+                        -ArgumentList "/quiet /ConfigDir `"$ConfigDir`" COMMAND=BUILDTXA INPUT=`"$($app.VCDir)`" OUTPUT=`"$txa`" APPNAME=`"$($app.Name)`"" `
+                        -Wait -NoNewWindow -PassThru
+                    if ($proc.ExitCode -ne 0 -or -not (Test-Path $txa)) {
+                        Write-Host " FAILED (BuildTXA exit $($proc.ExitCode))" -ForegroundColor Red
+                        $fail++; continue
+                    }
 
-                # Import TXA into .app
-                $proc2 = Start-Process -FilePath $clarionCL `
-                    -ArgumentList "/ConfigDir `"$ConfigDir`" /ai `"$($app.AppFile)`" `"$txa`"" `
-                    -Wait -NoNewWindow -PassThru
-                if (Test-Path $txa) { Remove-Item $txa -Force }
+                    # Import TXA into .app
+                    $proc2 = Start-Process -FilePath $clarionCL `
+                        -ArgumentList "/ConfigDir `"$ConfigDir`" /ai `"$($app.AppFile)`" `"$txa`"" `
+                        -Wait -NoNewWindow -PassThru
 
-                if ($proc2.ExitCode -eq 0) {
-                    Write-Host " OK" -ForegroundColor Green
-                    $ok++
-                } else {
-                    Write-Host " FAILED (import exit $($proc2.ExitCode))" -ForegroundColor Red
+                    if ($proc2.ExitCode -eq 0) {
+                        Write-Host " OK" -ForegroundColor Green
+                        $ok++
+                    } else {
+                        Write-Host " FAILED (import exit $($proc2.ExitCode))" -ForegroundColor Red
+                        $fail++
+                    }
+                } catch {
+                    Write-Host " FAILED (error: $($_.Exception.Message))" -ForegroundColor Red
                     $fail++
+                } finally {
+                    if (Test-Path $txa) { Remove-Item $txa -Force -ErrorAction SilentlyContinue }
                 }
             }
 
@@ -311,7 +353,7 @@ $buildOutputDir = Join-Path $solutionDir "build-output"
 $failedLogsDir  = Join-Path $buildOutputDir "failed"
 foreach ($d in @($buildOutputDir, $failedLogsDir)) {
     if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
-    else { Get-ChildItem $d -Filter "*.log" | Remove-Item -Force }
+    else { Get-ChildItem $d -Filter "*.log" | Remove-Item -Force -ErrorAction SilentlyContinue }
 }
 
 $successCount = 0
@@ -342,7 +384,7 @@ for ($i = 0; $i -lt $buildOrder.Count; $i++) {
     )
 
     try {
-        $proc = Start-Process -FilePath $msBuild -ArgumentList $buildArgs `
+        $proc = Start-Process -FilePath $MsBuildPath -ArgumentList $buildArgs `
             -WorkingDirectory $solutionDir -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput "$env:TEMP\msbuild_stdout_${name}.txt"
 
@@ -362,7 +404,7 @@ for ($i = 0; $i -lt $buildOrder.Count; $i++) {
             }
             Write-Host "    Full log: build-output\build_${name}.log" -ForegroundColor DarkGray
 
-            if ($name -in @('classes','data')) {
+            if ($CriticalProjects -contains $name) {
                 Write-Fail "Critical project '$name' failed - aborting"
                 exit 1
             }

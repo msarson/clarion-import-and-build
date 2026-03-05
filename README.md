@@ -73,8 +73,11 @@ Run from your solution directory or pass `-SolutionPath` explicitly.
 | `-SolutionPath` | String | `accura.sln` | Path to the `.sln` file |
 | `-Configuration` | String | `Release` | `Debug` or `Release` |
 | `-ConfigDir` | String | Auto-detected from `-ClarionPath` | Folder containing `ClarionProperties.xml`. Derived from the version of `ClarionCL.exe` in `-ClarionPath` — override only if your config lives elsewhere. |
+| `-ClaInterfacePath` | String | `C:\Program Files (x86)\UpperParkSolutions\claInterface\ClaInterface.exe` | Path to `ClaInterface.exe`. Override if installed to a non-default location. |
+| `-MsBuildPath` | String | `C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe` | Path to `MSBuild.exe`. Override if using a different .NET Framework version or install location. |
+| `-CriticalProjects` | String[] | `@()` | Project names whose failure aborts the build immediately regardless of `-StopOnError`. |
 | `-SkipImport` | Switch | `$false` | Skip Step 1 and go straight to MSBuild |
-| `-StopOnError` | Bool | `$true` | Stop on the first build failure (critical projects `classes` and `data` always stop) |
+| `-StopOnError` | Bool | `$true` | Stop on the first build failure |
 
 ---
 
