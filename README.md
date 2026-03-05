@@ -39,7 +39,7 @@ For each project in the solution, the script:
 | .NET Framework 4 (MSBuild) | Ships with Windows — `C:\Windows\Microsoft.NET\Framework\v4.0.30319\` |
 | [UpperPark Solutions Clarion Version Control Interface](https://www.upperparkdesigns.com/products/clarion-version-control/) | Required for the import step — installs `ClaInterface.exe`. Skip with `-SkipImport` if not used. |
 | `up_vcSettings.ini` in solution folder | Written by UpperPark VC Interface — must contain `OutputFolder=` pointing to the APV folder root |
-| `ClarionProperties.xml` in ConfigDir | Auto-resolved from `ClarionCL.exe` version — e.g. `%AppData%\SoftVelocity\Clarion\10.0`. Override with `-ConfigDir`. |
+| `ClarionProperties.xml` in ConfigDir | Auto-resolved from the version of `ClarionCL.exe` in the passed `-ClarionPath` — e.g. `%AppData%\SoftVelocity\Clarion\10.0` for Clarion 10, `11.0` for Clarion 11, etc. Override with `-ConfigDir`. |
 
 ---
 
@@ -72,7 +72,7 @@ Run from your solution directory or pass `-SolutionPath` explicitly.
 | `-ClarionPath` | String | *(required)* | Path to Clarion installation folder containing `bin\ClarionCL.exe` |
 | `-SolutionPath` | String | `accura.sln` | Path to the `.sln` file |
 | `-Configuration` | String | `Release` | `Debug` or `Release` |
-| `-ConfigDir` | String | `%AppData%\SoftVelocity\Clarion\10.0` | Folder containing `ClarionProperties.xml` |
+| `-ConfigDir` | String | Auto-detected from `-ClarionPath` | Folder containing `ClarionProperties.xml`. Derived from the version of `ClarionCL.exe` in `-ClarionPath` — override only if your config lives elsewhere. |
 | `-SkipImport` | Switch | `$false` | Skip Step 1 and go straight to MSBuild |
 | `-StopOnError` | Bool | `$true` | Stop on the first build failure (critical projects `classes` and `data` always stop) |
 
