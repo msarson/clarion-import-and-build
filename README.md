@@ -35,11 +35,11 @@ For each project in the solution, the script:
 | Requirement | Notes |
 |---|---|
 | Windows PowerShell 5.1+ or PowerShell 7+ | |
-| Clarion 10 with `ClarionCL.exe` | Pass path via `-ClarionPath` |
+| Clarion 10, 11, or 12 with `ClarionCL.exe` | Pass installation path via `-ClarionPath`. The script auto-detects the major version from `ClarionCL.exe` to locate the correct user config folder. |
 | .NET Framework 4 (MSBuild) | Ships with Windows — `C:\Windows\Microsoft.NET\Framework\v4.0.30319\` |
 | [UpperPark Solutions Clarion Version Control Interface](https://www.upperparkdesigns.com/products/clarion-version-control/) | Required for the import step — installs `ClaInterface.exe`. Skip with `-SkipImport` if not used. |
 | `up_vcSettings.ini` in solution folder | Written by UpperPark VC Interface — must contain `OutputFolder=` pointing to the APV folder root |
-| `ClarionProperties.xml` in ConfigDir | Defaults to `%AppData%\SoftVelocity\Clarion\10.0` |
+| `ClarionProperties.xml` in ConfigDir | Auto-resolved from `ClarionCL.exe` version — e.g. `%AppData%\SoftVelocity\Clarion\10.0`. Override with `-ConfigDir`. |
 
 ---
 
